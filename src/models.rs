@@ -5,7 +5,9 @@ use chrono::{DateTime, Utc};
 pub struct Project {
     pub id: i64,
     pub name: String,
-    pub time_sum: i64, // Total time in seconds
+    pub time_sum: i64,  // Total time in seconds
+    #[allow(dead_code)] // Status is stored and used in SQL filtering; field reserved for future use
+    pub status: String, // 'active' or 'inactive'
 }
 
 /// Represents a time tracking instance for a project

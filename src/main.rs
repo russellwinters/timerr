@@ -29,6 +29,11 @@ enum Commands {
     },
     /// List all projects with their total tracked time
     List,
+    /// Delete a project (soft-delete; project must have no time entries)
+    Delete {
+        /// Name of the project to delete
+        project_name: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -47,6 +52,9 @@ fn main() -> Result<()> {
         }
         Commands::List => {
             commands::list::execute(&conn)?;
+        }
+        Commands::Delete { project_name } => {
+            commands::delete::execute(&conn, &project_name)?;
         }
     }
 

@@ -29,11 +29,26 @@ pub fn init_database() -> Result<Connection> {
         "CREATE TABLE IF NOT EXISTS projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
-            time_sum INTEGER NOT NULL DEFAULT 0
+            time_sum INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active'
         )",
         [],
     )
     .context("Failed to create projects table")?;
+
+    // Migrate: add status column if it doesn't exist (safe to run on existing DBs)
+    let status_exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name = 'status'",
+        [],
+        |row| row.get(0),
+    )?;
+    if status_exists == 0 {
+        conn.execute(
+            "ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+            [],
+        )
+        .context("Failed to add status column to projects table")?;
+    }
 
     // Create instances table
     conn.execute(
@@ -70,12 +85,14 @@ pub fn upsert_project(conn: &Connection, name: &str) -> Result<Project> {
         params![name],
     )?;
 
-    let mut stmt = conn.prepare("SELECT id, name, time_sum FROM projects WHERE name = ?1")?;
+    let mut stmt =
+        conn.prepare("SELECT id, name, time_sum, status FROM projects WHERE name = ?1")?;
     let project = stmt.query_row(params![name], |row| {
         Ok(Project {
             id: row.get(0)?,
             name: row.get(1)?,
             time_sum: row.get(2)?,
+            status: row.get(3)?,
         })
     })?;
 
@@ -154,9 +171,11 @@ pub fn stop_timer(
     }
 }
 
-/// Get all projects
+/// Get all active projects
 pub fn get_all_projects(conn: &Connection) -> Result<Vec<Project>> {
-    let mut stmt = conn.prepare("SELECT id, name, time_sum FROM projects ORDER BY name")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, name, time_sum, status FROM projects WHERE status = 'active' ORDER BY name",
+    )?;
 
     let projects = stmt
         .query_map([], |row| {
@@ -164,6 +183,7 @@ pub fn get_all_projects(conn: &Connection) -> Result<Vec<Project>> {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 time_sum: row.get(2)?,
+                status: row.get(3)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -171,15 +191,18 @@ pub fn get_all_projects(conn: &Connection) -> Result<Vec<Project>> {
     Ok(projects)
 }
 
-/// Get a project by name
+/// Get an active project by name
 pub fn get_project_by_name(conn: &Connection, name: &str) -> Result<Option<Project>> {
-    let mut stmt = conn.prepare("SELECT id, name, time_sum FROM projects WHERE name = ?1")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, name, time_sum, status FROM projects WHERE name = ?1 AND status = 'active'",
+    )?;
 
     let result = stmt.query_row(params![name], |row| {
         Ok(Project {
             id: row.get(0)?,
             name: row.get(1)?,
             time_sum: row.get(2)?,
+            status: row.get(3)?,
         })
     });
 
@@ -188,4 +211,25 @@ pub fn get_project_by_name(conn: &Connection, name: &str) -> Result<Option<Proje
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(e.into()),
     }
+}
+
+/// Check if a project has any associated instances
+pub fn has_instances(conn: &Connection, project_id: i64) -> Result<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM instances WHERE project_id = ?1",
+        params![project_id],
+        |row| row.get(0),
+    )?;
+
+    Ok(count > 0)
+}
+
+/// Soft-delete a project by setting its status to 'inactive'
+pub fn delete_project(conn: &Connection, project_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE projects SET status = 'inactive' WHERE id = ?1",
+        params![project_id],
+    )?;
+
+    Ok(())
 }
