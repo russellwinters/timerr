@@ -246,6 +246,30 @@ pub fn has_active_instances(conn: &Connection, project_id: i64) -> Result<bool> 
     Ok(count > 0)
 }
 
+/// Get all active projects that have a currently running instance (no stop time)
+pub fn get_active_running_projects(conn: &Connection) -> Result<Vec<Project>> {
+    let mut stmt = conn.prepare(
+        "SELECT p.id, p.name, p.time_sum, p.status
+         FROM projects p
+         INNER JOIN instances i ON i.project_id = p.id
+         WHERE p.status = 'active' AND i.stop_time IS NULL
+         ORDER BY p.name",
+    )?;
+
+    let projects = stmt
+        .query_map([], |row| {
+            Ok(Project {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                time_sum: row.get(2)?,
+                status: row.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(projects)
+}
+
 /// Soft-delete a project by setting its status to 'inactive'
 pub fn delete_project(conn: &Connection, project_id: i64) -> Result<()> {
     conn.execute(
@@ -309,6 +333,39 @@ mod tests {
         let returned_start = result.unwrap();
         // Allow 1 second tolerance for rfc3339 round-trip
         assert!((returned_start - start).num_seconds().abs() <= 1);
+    }
+
+    #[test]
+    fn test_get_active_running_projects_none_running() {
+        let conn = setup_in_memory_db();
+        upsert_project(&conn, "proj1").unwrap();
+
+        let result = get_active_running_projects(&conn).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_active_running_projects_with_running() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "proj1").unwrap();
+        let start = Utc::now() - Duration::seconds(60);
+        create_instance(&conn, project.id, start).unwrap();
+
+        let result = get_active_running_projects(&conn).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "proj1");
+    }
+
+    #[test]
+    fn test_get_active_running_projects_stopped_not_included() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "proj1").unwrap();
+        let start = Utc::now() - Duration::seconds(60);
+        create_instance(&conn, project.id, start).unwrap();
+        stop_timer(&conn, project.id, Utc::now()).unwrap();
+
+        let result = get_active_running_projects(&conn).unwrap();
+        assert!(result.is_empty());
     }
 
     #[test]
