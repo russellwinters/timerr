@@ -213,10 +213,10 @@ pub fn get_project_by_name(conn: &Connection, name: &str) -> Result<Option<Proje
     }
 }
 
-/// Check if a project has any associated instances
-pub fn has_instances(conn: &Connection, project_id: i64) -> Result<bool> {
+/// Check if a project has any active instances
+pub fn has_active_instances(conn: &Connection, project_id: i64) -> Result<bool> {
     let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM instances WHERE project_id = ?1",
+        "SELECT COUNT(*) FROM instances WHERE project_id = ?1 AND stop_time IS NULL",
         params![project_id],
         |row| row.get(0),
     )?;
