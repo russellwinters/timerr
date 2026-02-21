@@ -268,7 +268,8 @@ mod tests {
             "CREATE TABLE projects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
-                time_sum INTEGER NOT NULL DEFAULT 0
+                time_sum INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'active'
             )",
             [],
         )
