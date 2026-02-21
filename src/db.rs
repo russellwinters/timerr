@@ -191,6 +191,50 @@ pub fn get_all_projects(conn: &Connection) -> Result<Vec<Project>> {
     Ok(projects)
 }
 
+/// Get the start time of the active (running) instance for a project, if any
+pub fn get_active_instance_start_time(
+    conn: &Connection,
+    project_id: i64,
+) -> Result<Option<DateTime<Utc>>> {
+    let mut stmt = conn
+        .prepare("SELECT start_time FROM instances WHERE project_id = ?1 AND stop_time IS NULL")?;
+
+    let result: Result<String, _> = stmt.query_row(params![project_id], |row| row.get(0));
+
+    match result {
+        Ok(start_time_str) => {
+            let start_time = DateTime::parse_from_rfc3339(&start_time_str)
+                .context("Failed to parse start time")?
+                .with_timezone(&Utc);
+            Ok(Some(start_time))
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Get the start time of the active (running) instance for a project, if any
+pub fn get_active_instance_start_time(
+    conn: &Connection,
+    project_id: i64,
+) -> Result<Option<DateTime<Utc>>> {
+    let mut stmt = conn
+        .prepare("SELECT start_time FROM instances WHERE project_id = ?1 AND stop_time IS NULL")?;
+
+    let result: Result<String, _> = stmt.query_row(params![project_id], |row| row.get(0));
+
+    match result {
+        Ok(start_time_str) => {
+            let start_time = DateTime::parse_from_rfc3339(&start_time_str)
+                .context("Failed to parse start time")?
+                .with_timezone(&Utc);
+            Ok(Some(start_time))
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// Get an active project by name
 pub fn get_project_by_name(conn: &Connection, name: &str) -> Result<Option<Project>> {
     let mut stmt = conn.prepare(
@@ -232,4 +276,71 @@ pub fn delete_project(conn: &Connection, project_id: i64) -> Result<()> {
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+
+    fn setup_in_memory_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
+        conn.execute(
+            "CREATE TABLE projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                time_sum INTEGER NOT NULL DEFAULT 0
+            )",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "CREATE TABLE instances (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL,
+                start_time TEXT NOT NULL,
+                stop_time TEXT,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            )",
+            [],
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn test_get_active_instance_start_time_no_active() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "test").unwrap();
+
+        let result = get_active_instance_start_time(&conn, project.id).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_get_active_instance_start_time_with_active() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "test").unwrap();
+        let start = Utc::now() - Duration::seconds(120);
+        create_instance(&conn, project.id, start).unwrap();
+
+        let result = get_active_instance_start_time(&conn, project.id).unwrap();
+        assert!(result.is_some());
+        let returned_start = result.unwrap();
+        // Allow 1 second tolerance for rfc3339 round-trip
+        assert!((returned_start - start).num_seconds().abs() <= 1);
+    }
+
+    #[test]
+    fn test_get_active_instance_start_time_stopped_instance() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "test").unwrap();
+        let start = Utc::now() - Duration::seconds(300);
+        create_instance(&conn, project.id, start).unwrap();
+        stop_timer(&conn, project.id, Utc::now()).unwrap();
+
+        let result = get_active_instance_start_time(&conn, project.id).unwrap();
+        assert!(result.is_none());
+    }
 }
