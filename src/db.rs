@@ -213,28 +213,6 @@ pub fn get_active_instance_start_time(
     }
 }
 
-/// Get the start time of the active (running) instance for a project, if any
-pub fn get_active_instance_start_time(
-    conn: &Connection,
-    project_id: i64,
-) -> Result<Option<DateTime<Utc>>> {
-    let mut stmt = conn
-        .prepare("SELECT start_time FROM instances WHERE project_id = ?1 AND stop_time IS NULL")?;
-
-    let result: Result<String, _> = stmt.query_row(params![project_id], |row| row.get(0));
-
-    match result {
-        Ok(start_time_str) => {
-            let start_time = DateTime::parse_from_rfc3339(&start_time_str)
-                .context("Failed to parse start time")?
-                .with_timezone(&Utc);
-            Ok(Some(start_time))
-        }
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(e.into()),
-    }
-}
-
 /// Get an active project by name
 pub fn get_project_by_name(conn: &Connection, name: &str) -> Result<Option<Project>> {
     let mut stmt = conn.prepare(
