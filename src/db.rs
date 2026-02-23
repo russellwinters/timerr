@@ -270,6 +270,54 @@ pub fn get_active_running_projects(conn: &Connection) -> Result<Vec<Project>> {
     Ok(projects)
 }
 
+/// Get the total seconds tracked for a project within a given UTC time range.
+/// Active instances (no stop_time) are counted up to the current moment.
+/// Each instance's contribution is clamped to [range_start, range_end].
+pub fn get_project_time_in_range(
+    conn: &Connection,
+    project_id: i64,
+    range_start: DateTime<Utc>,
+    range_end: DateTime<Utc>,
+) -> Result<i64> {
+    let now = Utc::now();
+
+    let mut stmt = conn.prepare(
+        "SELECT start_time, stop_time FROM instances
+         WHERE project_id = ?1
+           AND start_time < ?3
+           AND (stop_time > ?2 OR stop_time IS NULL)",
+    )?;
+
+    let rows = stmt
+        .query_map(
+            params![
+                project_id,
+                range_start.to_rfc3339(),
+                range_end.to_rfc3339()
+            ],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut total_seconds = 0i64;
+    for (start_str, stop_str) in rows {
+        let start = DateTime::parse_from_rfc3339(&start_str)
+            .context("Failed to parse start time")?
+            .with_timezone(&Utc);
+        let stop = match stop_str {
+            Some(s) => DateTime::parse_from_rfc3339(&s)
+                .context("Failed to parse stop time")?
+                .with_timezone(&Utc),
+            None => now,
+        };
+        let clamped_start = start.max(range_start);
+        let clamped_stop = stop.min(range_end);
+        total_seconds += (clamped_stop - clamped_start).num_seconds().max(0);
+    }
+
+    Ok(total_seconds)
+}
+
 /// Soft-delete a project by setting its status to 'inactive'
 pub fn delete_project(conn: &Connection, project_id: i64) -> Result<()> {
     conn.execute(
@@ -378,5 +426,65 @@ mod tests {
 
         let result = get_active_instance_start_time(&conn, project.id).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_get_project_time_in_range_fully_inside() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "test").unwrap();
+        let range_start = Utc::now() - Duration::seconds(3600);
+        let start = Utc::now() - Duration::seconds(600);
+        let stop = Utc::now() - Duration::seconds(300);
+        create_instance(&conn, project.id, start).unwrap();
+        stop_timer(&conn, project.id, stop).unwrap();
+
+        let result = get_project_time_in_range(&conn, project.id, range_start, Utc::now()).unwrap();
+        // Duration is ~300s; allow 2s tolerance for timing
+        assert!((result - 300).abs() <= 2, "Expected ~300s, got {result}");
+    }
+
+    #[test]
+    fn test_get_project_time_in_range_outside_range_returns_zero() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "test").unwrap();
+        let start = Utc::now() - Duration::seconds(3600);
+        let stop = Utc::now() - Duration::seconds(3000);
+        create_instance(&conn, project.id, start).unwrap();
+        stop_timer(&conn, project.id, stop).unwrap();
+
+        // Query a range that doesn't include the instance
+        let range_start = Utc::now() - Duration::seconds(100);
+        let result = get_project_time_in_range(&conn, project.id, range_start, Utc::now()).unwrap();
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_get_project_time_in_range_active_instance() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "test").unwrap();
+        let range_start = Utc::now() - Duration::seconds(3600);
+        // Start an instance 120s ago with no stop time
+        let start = Utc::now() - Duration::seconds(120);
+        create_instance(&conn, project.id, start).unwrap();
+
+        let result = get_project_time_in_range(&conn, project.id, range_start, Utc::now()).unwrap();
+        // Active instance from 120s ago; allow 2s tolerance
+        assert!((result - 120).abs() <= 2, "Expected ~120s, got {result}");
+    }
+
+    #[test]
+    fn test_get_project_time_in_range_clamped() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "test").unwrap();
+        // Instance spans 600s, but range only covers last 200s of it
+        let start = Utc::now() - Duration::seconds(600);
+        let stop = Utc::now() - Duration::seconds(100);
+        create_instance(&conn, project.id, start).unwrap();
+        stop_timer(&conn, project.id, stop).unwrap();
+
+        // Range starts 300s ago, so only 200s of the instance falls inside
+        let range_start = Utc::now() - Duration::seconds(300);
+        let result = get_project_time_in_range(&conn, project.id, range_start, Utc::now()).unwrap();
+        assert!((result - 200).abs() <= 2, "Expected ~200s, got {result}");
     }
 }
