@@ -56,7 +56,7 @@ pub fn execute(conn: &Connection) -> Result<()> {
         total_all += total;
 
         println!(
-            "  {}: Daily: {}   ---   Weekly: {}   ---   Total: {}",
+            "{}: Daily: {}   ---   Weekly: {}   ---   Total: {}",
             project.name,
             format_duration(daily),
             format_duration(weekly),
