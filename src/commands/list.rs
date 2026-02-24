@@ -1,8 +1,8 @@
 use anyhow::Result;
-use chrono::{DateTime, Datelike, Duration, Local, TimeZone, Utc};
+use chrono::{Datelike, Duration, Local, TimeZone, Utc};
 use rusqlite::Connection;
 
-use crate::db::{get_all_projects, get_project_time_in_range};
+use crate::db::{get_active_instance_start_time, get_all_projects, get_project_time_in_range};
 use crate::utils::format_duration;
 
 pub fn execute(conn: &Connection) -> Result<()> {
@@ -49,7 +49,13 @@ pub fn execute(conn: &Connection) -> Result<()> {
     for project in &projects {
         let daily = get_project_time_in_range(conn, project.id, today_start, now)?;
         let weekly = get_project_time_in_range(conn, project.id, week_start, now)?;
-        let total = get_project_time_in_range(conn, project.id, DateTime::UNIX_EPOCH, now)?;
+        let active_seconds =
+            if let Some(start_time) = get_active_instance_start_time(conn, project.id)? {
+                (now - start_time).num_seconds().max(0)
+            } else {
+                0
+            };
+        let total = project.time_sum + active_seconds;
 
         total_daily += daily;
         total_weekly += weekly;
