@@ -290,11 +290,7 @@ pub fn get_project_time_in_range(
 
     let rows = stmt
         .query_map(
-            params![
-                project_id,
-                range_start.to_rfc3339(),
-                range_end.to_rfc3339()
-            ],
+            params![project_id, range_start.to_rfc3339(), range_end.to_rfc3339()],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )?
         .collect::<Result<Vec<_>, _>>()?;

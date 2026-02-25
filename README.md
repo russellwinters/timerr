@@ -139,14 +139,7 @@ cargo fmt
 
 ## Roadmap
 
-See [project_plan.md](project_plan.md) for detailed development plans.
-
-Future enhancements may include:
-- Edit/delete entries
-- Export to CSV/JSON
-- Reports by date range
-- Project tags/categories
-- Terminal UI (TUI) mode
+The docs dir contains references to ongoing or past project plans.
 
 ## Contributing
 
