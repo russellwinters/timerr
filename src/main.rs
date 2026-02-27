@@ -29,6 +29,8 @@ enum Commands {
     },
     /// List all projects with their total tracked time
     List,
+    /// Show archived (inactive) projects and their total tracked time
+    Archived,
     /// Show all projects with an active timer and the current instance time
     Current,
     /// Delete a project (soft-delete; project must have no time entries)
@@ -54,6 +56,9 @@ fn main() -> Result<()> {
         }
         Commands::List => {
             commands::list::execute(&conn)?;
+        }
+        Commands::Archived => {
+            commands::archived::execute(&conn)?;
         }
         Commands::Current => {
             commands::current::execute(&conn)?;

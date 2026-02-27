@@ -315,6 +315,26 @@ pub fn get_project_time_in_range(
     Ok(total_seconds)
 }
 
+/// Get all archived (inactive) projects
+pub fn get_archived_projects(conn: &Connection) -> Result<Vec<Project>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, time_sum, status FROM projects WHERE status = 'inactive' ORDER BY name",
+    )?;
+
+    let projects = stmt
+        .query_map([], |row| {
+            Ok(Project {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                time_sum: row.get(2)?,
+                status: row.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(projects)
+}
+
 /// Soft-delete a project by setting its status to 'inactive'
 pub fn delete_project(conn: &Connection, project_id: i64) -> Result<()> {
     conn.execute(
@@ -467,6 +487,53 @@ mod tests {
         let result = get_project_time_in_range(&conn, project.id, range_start, Utc::now()).unwrap();
         // Active instance from 120s ago; allow 2s tolerance
         assert!((result - 120).abs() <= 2, "Expected ~120s, got {result}");
+    }
+
+    #[test]
+    fn test_get_archived_projects_empty() {
+        let conn = setup_in_memory_db();
+        upsert_project(&conn, "active_proj").unwrap();
+
+        let result = get_archived_projects(&conn).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_archived_projects_after_delete() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "myproject").unwrap();
+        delete_project(&conn, project.id).unwrap();
+
+        let result = get_archived_projects(&conn).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "myproject");
+        assert_eq!(result[0].status, "inactive");
+    }
+
+    #[test]
+    fn test_get_archived_projects_excludes_active() {
+        let conn = setup_in_memory_db();
+        upsert_project(&conn, "active_proj").unwrap();
+        let project = upsert_project(&conn, "archived_proj").unwrap();
+        delete_project(&conn, project.id).unwrap();
+
+        let result = get_archived_projects(&conn).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "archived_proj");
+    }
+
+    #[test]
+    fn test_get_archived_projects_time_sum_preserved() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "timed_proj").unwrap();
+        let start = Utc::now() - Duration::seconds(500);
+        create_instance(&conn, project.id, start).unwrap();
+        stop_timer(&conn, project.id, Utc::now()).unwrap();
+        delete_project(&conn, project.id).unwrap();
+
+        let result = get_archived_projects(&conn).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result[0].time_sum >= 499 && result[0].time_sum <= 502);
     }
 
     #[test]
