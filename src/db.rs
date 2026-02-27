@@ -79,9 +79,10 @@ pub fn init_database() -> Result<Connection> {
 
 /// Get or create a project by name
 pub fn upsert_project(conn: &Connection, name: &str) -> Result<Project> {
-    // Try to insert, if it exists, fetch it
+    // Try to insert; if the project already exists (even if inactive), re-activate it
     conn.execute(
-        "INSERT OR IGNORE INTO projects (name, time_sum) VALUES (?1, 0)",
+        "INSERT INTO projects (name, time_sum) VALUES (?1, 0)
+         ON CONFLICT(name) DO UPDATE SET status = 'active'",
         params![name],
     )?;
 
@@ -466,6 +467,22 @@ mod tests {
         let result = get_project_time_in_range(&conn, project.id, range_start, Utc::now()).unwrap();
         // Active instance from 120s ago; allow 2s tolerance
         assert!((result - 120).abs() <= 2, "Expected ~120s, got {result}");
+    }
+
+    #[test]
+    fn test_upsert_project_reactivates_inactive_project() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "myproject").unwrap();
+        delete_project(&conn, project.id).unwrap();
+
+        // Verify project is now inactive
+        let inactive = get_project_by_name(&conn, "myproject").unwrap();
+        assert!(inactive.is_none(), "Project should be inactive after deletion");
+
+        // Upserting again should re-activate the project
+        let reactivated = upsert_project(&conn, "myproject").unwrap();
+        assert_eq!(reactivated.status, "active");
+        assert_eq!(reactivated.id, project.id);
     }
 
     #[test]
