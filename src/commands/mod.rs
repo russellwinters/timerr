@@ -1,5 +1,6 @@
 pub mod archived;
 pub mod current;
+pub mod current_stop;
 pub mod delete;
 pub mod instance_add;
 pub mod instance_list;

@@ -32,7 +32,10 @@ enum Commands {
     /// Show archived (inactive) projects and their total tracked time
     Archived,
     /// Show all projects with an active timer and the current instance time
-    Current,
+    Current {
+        #[command(subcommand)]
+        subcommand: Option<CurrentSubcommand>,
+    },
     /// Delete a project (soft-delete; project must have no time entries)
     Delete {
         /// Name of the project to delete
@@ -57,6 +60,12 @@ enum Commands {
     },
 }
 
+#[derive(Subcommand)]
+enum CurrentSubcommand {
+    /// Stop all running timers
+    Stop,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -77,9 +86,14 @@ fn main() -> Result<()> {
         Commands::Archived => {
             commands::archived::execute(&conn)?;
         }
-        Commands::Current => {
-            commands::current::execute(&conn)?;
-        }
+        Commands::Current { subcommand } => match subcommand {
+            Some(CurrentSubcommand::Stop) => {
+                commands::current_stop::execute(&conn)?;
+            }
+            None => {
+                commands::current::execute(&conn)?;
+            }
+        },
         Commands::Delete { project_name } => {
             commands::delete::execute(&conn, &project_name)?;
         }
