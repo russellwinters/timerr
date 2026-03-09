@@ -48,6 +48,13 @@ enum Commands {
         /// ID of the instance to remove
         instance_id: i64,
     },
+    /// Add a completed instance to a project (useful for logging time after the fact)
+    InstanceAdd {
+        /// Name of the active project to add time to
+        project_name: String,
+        /// Duration to add (e.g. "1h,30m", "45m", "2h,1m,5s")
+        time: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -81,6 +88,9 @@ fn main() -> Result<()> {
         }
         Commands::InstanceRm { instance_id } => {
             commands::instance_rm::execute(&conn, instance_id)?;
+        }
+        Commands::InstanceAdd { project_name, time } => {
+            commands::instance_add::execute(&conn, &project_name, &time)?;
         }
     }
 

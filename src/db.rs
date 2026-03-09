@@ -77,6 +77,40 @@ pub fn init_database() -> Result<Connection> {
     Ok(conn)
 }
 
+/// Create a completed (already-stopped) time-tracking instance and update the project time_sum.
+pub fn create_completed_instance(
+    conn: &Connection,
+    project_id: i64,
+    start_time: DateTime<Utc>,
+    stop_time: DateTime<Utc>,
+) -> Result<Instance> {
+    if stop_time <= start_time {
+        anyhow::bail!("stop_time must be after start_time");
+    }
+
+    let duration = (stop_time - start_time).num_seconds();
+
+    conn.execute(
+        "INSERT INTO instances (project_id, start_time, stop_time) VALUES (?1, ?2, ?3)",
+        params![project_id, start_time.to_rfc3339(), stop_time.to_rfc3339()],
+    )?;
+
+    let id = conn.last_insert_rowid();
+
+    // Update project's total tracked time
+    conn.execute(
+        "UPDATE projects SET time_sum = time_sum + ?1 WHERE id = ?2",
+        params![duration, project_id],
+    )?;
+
+    Ok(Instance {
+        id,
+        project_id,
+        start_time,
+        stop_time: Some(stop_time),
+    })
+}
+
 /// Get or create a project by name
 pub fn upsert_project(conn: &Connection, name: &str) -> Result<Project> {
     // Try to insert; if the project already exists (even if inactive), re-activate it
