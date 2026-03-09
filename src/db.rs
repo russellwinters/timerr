@@ -315,6 +315,26 @@ pub fn get_project_time_in_range(
     Ok(total_seconds)
 }
 
+/// Get all archived (inactive) projects
+pub fn get_archived_projects(conn: &Connection) -> Result<Vec<Project>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, time_sum, status FROM projects WHERE status = 'inactive' ORDER BY name",
+    )?;
+
+    let projects = stmt
+        .query_map([], |row| {
+            Ok(Project {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                time_sum: row.get(2)?,
+                status: row.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(projects)
+}
+
 /// Get all instances for a project, ordered by start time descending
 pub fn get_instances_for_project(conn: &Connection, project_id: i64) -> Result<Vec<Instance>> {
     let mut stmt = conn.prepare(
@@ -360,9 +380,8 @@ pub fn get_instances_for_project(conn: &Connection, project_id: i64) -> Result<V
 
 /// Get an instance by ID
 pub fn get_instance_by_id(conn: &Connection, instance_id: i64) -> Result<Option<Instance>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, project_id, start_time, stop_time FROM instances WHERE id = ?1",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT id, project_id, start_time, stop_time FROM instances WHERE id = ?1")?;
 
     let result = stmt.query_row(params![instance_id], |row| {
         Ok((
@@ -409,10 +428,7 @@ pub fn delete_instance(conn: &Connection, instance: &Instance) -> Result<()> {
         )?;
     }
 
-    conn.execute(
-        "DELETE FROM instances WHERE id = ?1",
-        params![instance.id],
-    )?;
+    conn.execute("DELETE FROM instances WHERE id = ?1", params![instance.id])?;
 
     Ok(())
 }
@@ -572,6 +588,53 @@ mod tests {
     }
 
     #[test]
+    fn test_get_archived_projects_empty() {
+        let conn = setup_in_memory_db();
+        upsert_project(&conn, "active_proj").unwrap();
+
+        let result = get_archived_projects(&conn).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_archived_projects_after_delete() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "myproject").unwrap();
+        delete_project(&conn, project.id).unwrap();
+
+        let result = get_archived_projects(&conn).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "myproject");
+        assert_eq!(result[0].status, "inactive");
+    }
+
+    #[test]
+    fn test_get_archived_projects_excludes_active() {
+        let conn = setup_in_memory_db();
+        upsert_project(&conn, "active_proj").unwrap();
+        let project = upsert_project(&conn, "archived_proj").unwrap();
+        delete_project(&conn, project.id).unwrap();
+
+        let result = get_archived_projects(&conn).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "archived_proj");
+    }
+
+    #[test]
+    fn test_get_archived_projects_time_sum_preserved() {
+        let conn = setup_in_memory_db();
+        let project = upsert_project(&conn, "timed_proj").unwrap();
+        let start = Utc::now() - Duration::seconds(500);
+        create_instance(&conn, project.id, start).unwrap();
+        stop_timer(&conn, project.id, Utc::now()).unwrap();
+        delete_project(&conn, project.id).unwrap();
+
+        let result = get_archived_projects(&conn).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result[0].time_sum >= 499 && result[0].time_sum <= 502);
+    }
+
+    #[test]
     fn test_upsert_project_reactivates_inactive_project() {
         let conn = setup_in_memory_db();
         let project = upsert_project(&conn, "myproject").unwrap();
@@ -579,7 +642,10 @@ mod tests {
 
         // Verify project is now inactive
         let inactive = get_project_by_name(&conn, "myproject").unwrap();
-        assert!(inactive.is_none(), "Project should be inactive after deletion");
+        assert!(
+            inactive.is_none(),
+            "Project should be inactive after deletion"
+        );
 
         // Upserting again should re-activate the project
         let reactivated = upsert_project(&conn, "myproject").unwrap();
