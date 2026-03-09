@@ -36,6 +36,16 @@ enum Commands {
         /// Name of the project to delete
         project_name: String,
     },
+    /// List all instances for a project
+    InstanceList {
+        /// ID of the project to list instances for
+        project_id: i64,
+    },
+    /// Remove a specific instance
+    InstanceRm {
+        /// ID of the instance to remove
+        instance_id: i64,
+    },
 }
 
 fn main() -> Result<()> {
@@ -60,6 +70,12 @@ fn main() -> Result<()> {
         }
         Commands::Delete { project_name } => {
             commands::delete::execute(&conn, &project_name)?;
+        }
+        Commands::InstanceList { project_id } => {
+            commands::instance_list::execute(&conn, project_id)?;
+        }
+        Commands::InstanceRm { instance_id } => {
+            commands::instance_rm::execute(&conn, instance_id)?;
         }
     }
 

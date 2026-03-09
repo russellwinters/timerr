@@ -315,6 +315,130 @@ pub fn get_project_time_in_range(
     Ok(total_seconds)
 }
 
+/// Get an active project by ID
+pub fn get_project_by_id(conn: &Connection, project_id: i64) -> Result<Option<Project>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, time_sum, status FROM projects WHERE id = ?1 AND status = 'active'",
+    )?;
+
+    let result = stmt.query_row(params![project_id], |row| {
+        Ok(Project {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            time_sum: row.get(2)?,
+            status: row.get(3)?,
+        })
+    });
+
+    match result {
+        Ok(project) => Ok(Some(project)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Get all instances for a project, ordered by start time descending
+pub fn get_instances_for_project(conn: &Connection, project_id: i64) -> Result<Vec<Instance>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, project_id, start_time, stop_time FROM instances
+         WHERE project_id = ?1
+         ORDER BY start_time DESC",
+    )?;
+
+    let rows = stmt
+        .query_map(params![project_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut instances = Vec::new();
+    for (id, proj_id, start_str, stop_str) in rows {
+        let start_time = DateTime::parse_from_rfc3339(&start_str)
+            .context("Failed to parse start time")?
+            .with_timezone(&Utc);
+        let stop_time = match stop_str {
+            Some(s) => Some(
+                DateTime::parse_from_rfc3339(&s)
+                    .context("Failed to parse stop time")?
+                    .with_timezone(&Utc),
+            ),
+            None => None,
+        };
+        instances.push(Instance {
+            id,
+            project_id: proj_id,
+            start_time,
+            stop_time,
+        });
+    }
+
+    Ok(instances)
+}
+
+/// Get an instance by ID
+pub fn get_instance_by_id(conn: &Connection, instance_id: i64) -> Result<Option<Instance>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, project_id, start_time, stop_time FROM instances WHERE id = ?1",
+    )?;
+
+    let result = stmt.query_row(params![instance_id], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        ))
+    });
+
+    match result {
+        Ok((id, project_id, start_str, stop_str)) => {
+            let start_time = DateTime::parse_from_rfc3339(&start_str)
+                .context("Failed to parse start time")?
+                .with_timezone(&Utc);
+            let stop_time = match stop_str {
+                Some(s) => Some(
+                    DateTime::parse_from_rfc3339(&s)
+                        .context("Failed to parse stop time")?
+                        .with_timezone(&Utc),
+                ),
+                None => None,
+            };
+            Ok(Some(Instance {
+                id,
+                project_id,
+                start_time,
+                stop_time,
+            }))
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Delete an instance by ID.
+/// If the instance was stopped, its duration is subtracted from the project's time_sum.
+/// MAX(0, ...) guards against time_sum going negative due to any data inconsistency.
+pub fn delete_instance(conn: &Connection, instance: &Instance) -> Result<()> {
+    if let Some(duration) = instance.duration() {
+        conn.execute(
+            "UPDATE projects SET time_sum = MAX(0, time_sum - ?1) WHERE id = ?2",
+            params![duration, instance.project_id],
+        )?;
+    }
+
+    conn.execute(
+        "DELETE FROM instances WHERE id = ?1",
+        params![instance.id],
+    )?;
+
+    Ok(())
+}
+
 /// Soft-delete a project by setting its status to 'inactive'
 pub fn delete_project(conn: &Connection, project_id: i64) -> Result<()> {
     conn.execute(
