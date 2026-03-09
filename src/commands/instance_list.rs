@@ -2,16 +2,22 @@ use anyhow::{bail, Result};
 use chrono::{Local, Utc};
 use rusqlite::Connection;
 
-use crate::db::{get_instances_for_project, get_project_by_id};
+use crate::db::{get_instances_for_project, get_project_by_name};
 use crate::utils::format_duration;
 
-pub fn execute(conn: &Connection, project_id: i64) -> Result<()> {
-    let project = match get_project_by_id(conn, project_id)? {
+pub fn execute(conn: &Connection, project_name: &str) -> Result<()> {
+    let project_name = project_name.trim();
+
+    if project_name.is_empty() {
+        bail!("Project name cannot be empty");
+    }
+
+    let project = match get_project_by_name(conn, project_name)? {
         Some(p) => p,
-        None => bail!("Project with ID {} not found", project_id),
+        None => bail!("Project '{}' not found", project_name),
     };
 
-    let instances = get_instances_for_project(conn, project_id)?;
+    let instances = get_instances_for_project(conn, project.id)?;
 
     if instances.is_empty() {
         println!(
@@ -88,20 +94,30 @@ mod tests {
     #[test]
     fn test_instance_list_project_not_found() {
         let conn = setup_in_memory_db();
-        let result = execute(&conn, 999);
+        let result = execute(&conn, "nonexistent");
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("Project with ID 999 not found"));
+            .contains("Project 'nonexistent' not found"));
+    }
+
+    #[test]
+    fn test_instance_list_empty_name() {
+        let conn = setup_in_memory_db();
+        let result = execute(&conn, "  ");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Project name cannot be empty"));
     }
 
     #[test]
     fn test_instance_list_no_instances() {
         let conn = setup_in_memory_db();
-        let project = upsert_project(&conn, "empty").unwrap();
-        // Should succeed and print a "no instances" message without error
-        let result = execute(&conn, project.id);
+        upsert_project(&conn, "empty").unwrap();
+        let result = execute(&conn, "empty");
         assert!(result.is_ok());
     }
 
@@ -113,7 +129,7 @@ mod tests {
         create_instance(&conn, project.id, start).unwrap();
         stop_timer(&conn, project.id, Utc::now()).unwrap();
 
-        let result = execute(&conn, project.id);
+        let result = execute(&conn, "myproject");
         assert!(result.is_ok());
     }
 
@@ -124,7 +140,8 @@ mod tests {
         let start = Utc::now() - Duration::seconds(60);
         create_instance(&conn, project.id, start).unwrap();
 
-        let result = execute(&conn, project.id);
+        let result = execute(&conn, "running");
         assert!(result.is_ok());
     }
 }
+

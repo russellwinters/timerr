@@ -38,8 +38,8 @@ enum Commands {
     },
     /// List all instances for a project
     InstanceList {
-        /// ID of the project to list instances for
-        project_id: i64,
+        /// Name of the project to list instances for
+        project_name: String,
     },
     /// Remove a specific instance
     InstanceRm {
@@ -71,8 +71,8 @@ fn main() -> Result<()> {
         Commands::Delete { project_name } => {
             commands::delete::execute(&conn, &project_name)?;
         }
-        Commands::InstanceList { project_id } => {
-            commands::instance_list::execute(&conn, project_id)?;
+        Commands::InstanceList { project_name } => {
+            commands::instance_list::execute(&conn, &project_name)?;
         }
         Commands::InstanceRm { instance_id } => {
             commands::instance_rm::execute(&conn, instance_id)?;

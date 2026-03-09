@@ -315,28 +315,6 @@ pub fn get_project_time_in_range(
     Ok(total_seconds)
 }
 
-/// Get an active project by ID
-pub fn get_project_by_id(conn: &Connection, project_id: i64) -> Result<Option<Project>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, name, time_sum, status FROM projects WHERE id = ?1 AND status = 'active'",
-    )?;
-
-    let result = stmt.query_row(params![project_id], |row| {
-        Ok(Project {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            time_sum: row.get(2)?,
-            status: row.get(3)?,
-        })
-    });
-
-    match result {
-        Ok(project) => Ok(Some(project)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(e.into()),
-    }
-}
-
 /// Get all instances for a project, ordered by start time descending
 pub fn get_instances_for_project(conn: &Connection, project_id: i64) -> Result<Vec<Instance>> {
     let mut stmt = conn.prepare(
