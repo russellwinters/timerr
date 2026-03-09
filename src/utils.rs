@@ -1,5 +1,5 @@
-/// Parse a human-readable duration string (e.g. "1h 30m 45s") into total seconds.
-/// Supported components: `Xh`, `Ym`, `Zs` (each optional, in any order, space-separated).
+/// Parse a human-readable duration string (e.g. "1h,30m,45s") into total seconds.
+/// Supported components: `Xh`, `Ym`, `Zs` (each optional, comma-separated).
 /// At least one component must be present and the resulting duration must be positive.
 pub fn parse_duration(s: &str) -> anyhow::Result<i64> {
     let s = s.trim();
@@ -10,7 +10,7 @@ pub fn parse_duration(s: &str) -> anyhow::Result<i64> {
     let mut total_seconds: i64 = 0;
     let mut found_any = false;
 
-    for token in s.split_whitespace() {
+    for token in s.split(',').map(str::trim).filter(|t| !t.is_empty()) {
         if let Some(h) = token.strip_suffix('h') {
             let hours: i64 = h
                 .parse()
@@ -31,7 +31,7 @@ pub fn parse_duration(s: &str) -> anyhow::Result<i64> {
             found_any = true;
         } else {
             anyhow::bail!(
-                "Unrecognized duration token '{}'. Expected format: 1h 30m 45s",
+                "Unrecognized duration token '{}'. Expected format: 1h,30m,45s",
                 token
             );
         }
@@ -90,12 +90,12 @@ mod tests {
     fn test_parse_duration() {
         assert_eq!(parse_duration("45s").unwrap(), 45);
         assert_eq!(parse_duration("1m").unwrap(), 60);
-        assert_eq!(parse_duration("1m 30s").unwrap(), 90);
+        assert_eq!(parse_duration("1m,30s").unwrap(), 90);
         assert_eq!(parse_duration("1h").unwrap(), 3600);
-        assert_eq!(parse_duration("1h 0m").unwrap(), 3600);
-        assert_eq!(parse_duration("1h 30m").unwrap(), 5400);
-        assert_eq!(parse_duration("2h 1m 5s").unwrap(), 7265);
-        assert_eq!(parse_duration("  2h  1m  5s  ").unwrap(), 7265);
+        assert_eq!(parse_duration("1h,0m").unwrap(), 3600);
+        assert_eq!(parse_duration("1h,30m").unwrap(), 5400);
+        assert_eq!(parse_duration("2h,1m,5s").unwrap(), 7265);
+        assert_eq!(parse_duration("  2h , 1m , 5s  ").unwrap(), 7265);
     }
 
     #[test]
@@ -103,7 +103,7 @@ mod tests {
         assert!(parse_duration("").is_err());
         assert!(parse_duration("   ").is_err());
         assert!(parse_duration("0s").is_err());
-        assert!(parse_duration("0m 0s").is_err());
+        assert!(parse_duration("0m,0s").is_err());
         assert!(parse_duration("abc").is_err());
         assert!(parse_duration("1x").is_err());
     }

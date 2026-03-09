@@ -50,7 +50,7 @@ enum Commands {
     InstanceAdd {
         /// Name of the active project to add time to
         project_name: String,
-        /// Duration to add (e.g. "1h 30m", "45m", "2h 1m 5s")
+        /// Duration to add (e.g. "1h,30m", "45m", "2h,1m,5s")
         time: String,
     },
 }

@@ -74,7 +74,7 @@ mod tests {
         let conn = setup_in_memory_db();
         upsert_project(&conn, "myproject").unwrap();
 
-        let result = execute(&conn, "myproject", "1h 30m");
+        let result = execute(&conn, "myproject", "1h,30m");
         assert!(result.is_ok());
 
         let project = get_project_by_name(&conn, "myproject").unwrap().unwrap();
